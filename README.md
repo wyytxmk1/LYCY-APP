@@ -1,126 +1,118 @@
-# vinext-starter
+# 轻言 · 学生端训练与记录原型
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+Vue 3 + Vite + TypeScript，手机优先。本轮在原有通用训练框架上增加训练记录和四种步骤交互。无数据库、上传、AI 评分、语音识别或新增运行依赖。
 
-## Prerequisites
+## 运行
 
-- Node.js `>=22.13.0`
-- Portable: Windows, macOS, or Linux; no Bash required
-- Managed Linux: managed Linux runtime with Bash, `flock`, `curl`, `sha256sum`, and GNU `timeout`
-- Git is required only for publishing
-
-## Sites Lifecycle
-
-The Sites initializer copies the shared starter and selects managed-linux only when `SITES_MANAGED_LINUX_CONTAINER=1`; otherwise it selects portable. It saves the selection only in ignored `.sites-runtime/execution-profile.json`. Both profiles copy/configure first, then use the plugin's separate `install-dependencies.mjs` step to measure installation independently. Edit source under `app/` and follow the Sites skill for installation, preview, builds, and publishing.
-
-Whenever reopening or moving a checkout, run `node <plugin-root>/scripts/configure-execution-profile.mjs` before project commands. Profile changes do not alter tracked source or require reinstalling otherwise-valid dependencies; restart an existing preview to use the new selection. Do not commit or upload `.sites-runtime/`.
-
-This starter does not use `wrangler.jsonc`.
-
-`install:ci` runs `npm ci` once against the shared lockfile, disables parent-workspace discovery, and includes required dev/optional dependencies despite production/omit settings. Sharp defaults to prebuilt binaries unless explicitly configured otherwise. Do not overlap installers.
-
-- **Portable:** Preserve host HOME, npm cache, registry, proxy, temporary paths, retry/concurrency settings, and lifecycle-script policy. Use `--prefer-offline --no-audit --no-fund`.
-- **Managed Linux:** Use the existing project-local HOME/cache/tmp setup and Linux install lock, tarball preflight, and timeout. Restore the image-seeded npm cache only when its lockfile hash matches; retain network fallback. Builds keep their existing timeout. These helpers are not invoked by the portable profile.
-
-`scripts/sites-env.mjs` preserves the caller's HOME, npm cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. If npm reports an unwritable cache, select a writable path with `npm_config_cache` for that install. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
-
-On portable, `npm run dev` uses `vinext dev` with HMR, starting at port 5173. Vinext records the running server in ignored `.vinext/` state, rejects an ordinary duplicate launch, and recovers stale state after a stopped process; exactly simultaneous starts can race. Pass `--port <port>` or `--hostname <host>` after `npm run dev --` when needed; keep portable previews on loopback.
-
-For browser QA on managed Linux, use `sites-preview start`. The project's dev script runs Vite and accepts the supervisor's `--host 0.0.0.0 --port 4173 --strictPort` arguments. The internal browser uses `http://terminal.local:4173/`; it is not a user-facing URL. The supervisor owns the preview lifecycle. The ignored local profile survives the supervisor's cleared process environment.
-
-The portable profile simulates ChatGPT sign-in only for loopback development requests. Visit `/signin-with-chatgpt?return_to=/` to sign in as `local_seedy` (`seedy@sites.test`, display name `Seedy`) and `/signout-with-chatgpt?return_to=/` to sign out. The development cookie preserves that identity across server restarts. Mock auth is disabled in the managed-linux profile and is not included in production builds; hosted authentication remains dispatch-owned.
-
-The Worker uses `vinext/server/fetch-handler`, including Vinext's config-aware image handling. After building, `npm start` runs that Worker locally through Wrangler on `127.0.0.1`, sharing `.wrangler/state` with dev preview and local D1 migrations; it does not deploy the site or simulate sign-in. Use the URL printed by the server. Pass `npm start -- --port <port>` to select a different built-preview port.
-
-Local previews use Miniflare's placeholder `Request.cf` metadata without a network lookup. Set `CLOUDFLARE_CF_FETCH_ENABLED=true` to opt into fetching preview metadata; this setting does not change hosted request metadata.
-
-Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=true` to opt in.
-
-## Included Shape
-
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Use it as the durable user key; use email and name for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use the returned `userId` as the stable user key for user-owned records; do not use email as a durable identifier.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Local D1 migrations
-
-For a D1-backed local preview, generate SQL with `npm run db:generate`. Build once through the Sites skill's build entrypoint (or `npm run build` for standalone use) to generate `dist/server/wrangler.json`, rebuilding if bindings change. From the project root, apply each pending migration in order:
+建议 Node.js 22.18+ 或 24 LTS。
 
 ```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_example.sql
+npm install
+npm run dev
+npm test
+npm run build
 ```
 
-Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
+打开终端 Local 地址。本机录音使用 localhost / 127.0.0.1；手机需要 HTTPS，普通局域网 HTTP 地址不能获取麦克风。
 
-## Diagnostic Commands
+## 四种交互
 
-- `npm run install:ci`: perform the one locked dependency install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: preview the built Worker locally with D1/R2 support
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+题目配置使用 interaction 字段，一项训练可以混合任意类型：
 
-When using the Sites plugin, follow its skill instructions for installation, builds, and publishing. These npm commands remain available for standalone use.
+| interaction | 操作 | 完成记录 | 答案 |
+| --- | --- | --- | --- |
+| audio | 录音、停止、试听、重录 | 生成有效音频后自动完成 | Blob、格式、大小、时长 |
+| text | 输入文字、提交文字答案 | 提交后完成 | 文字 |
+| read | 阅读说明、我已阅读 | 点击后完成 | 不生成答案 |
+| practice | 按指导练习、我已完成练习 | 点击后完成 | 不生成答案 |
 
-The portable build runs Vinext directly without a host `timeout` command. The managed-linux build uses `scripts/build-verified.sh` and its existing `SITES_BUILD_TIMEOUT` setting.
+录音停止并生成有效音频后，本步自动完成，可直接继续下一步或完成训练。文字仍需提交，阅读和练习仍需确认。修改文字后需重新提交；成功重录自动替换本题音频，重录失败保留旧音频和完成状态。
 
-## Learn More
+录音和处理期间暂停切题及确认。required: false 的文字/录音步骤支持明确跳过，记录标记为 skipped，completed 为 false，不伪造答案。阅读/练习仍需要确认，不能靠切页视为完成。
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+模拟训练保留：
+- 看图命名：5 张图片，每题录音，停止后即可继续。
+- 文字朗读：5 个短句，每题录音，停止后即可继续。
+- 软腭发音：第 1 步阅读，第 2、3 步练习确认，第 4 步录音（可跳过）。
+- 心理训练：3 个阅读确认步骤，无需文字或录音回答。
+
+没有为心理训练新建页面。文字输入能力由通用组件支持；综合模拟历史包含文字答案，当前正式模拟训练不强行添加文字题。
+
+## 训练记录流程
+
+```text
+首页 → 训练 → 各步确认 → 完成训练 → 查看本次记录
+                                      ↓
+                                   返回首页
+首页底部「我的」 → 训练记录列表 → 逐题记录详情
+```
+
+记录列表分为“本次打开期间”的真实记录与“模拟历史”。每次训练产生独立记录，再练一次不会覆盖上一次结果；首页完成数量仍按训练种类去重。
+
+详情显示开始/完成时间（北京时间）、用时、训练名称、步骤内容快照、每步状态和确认时间：
+- 阅读：已确认阅读，无答案区域。
+- 练习：已确认完成练习，无答案区域。
+- 文字：提交的文字。
+- 录音：对应播放器，可试听，不要求麦克风权限。
+- 可选跳过：明确标注已跳过，无空白答案。
+
+模拟历史仅展示示例，不冒充实际经历；其中音频为 1 秒合成提示音，不是学员录音。真实训练音频来自当前用户的 MediaRecorder 录音。
+
+## 数据结构与保留范围
+
+内容、会话和记录分开：
+- Training：id、version、名称、说明、有序 questions；每题有稳定 id、interaction、图片/文字/指令、required。
+- TrainingSession：会话 ID、训练 ID/版本、开始/完成时间、当前题号；progress 单独保存每步 completed、skipped、confirmedAt；answers 仅存有实际内容的文字或录音。
+- TrainingRecord：每次训练独立 ID、source（session/mock）、训练信息及逐题内容/状态/答案快照、时间及汇总。答案及嵌套图片/录音元信息被复制，后续模板或新一轮作答不会修改旧记录。Blob 本身不可变。
+- 播放器进入页面时创建 Object URL，离开时释放；记录仍持有 Blob，再次查看会新建 URL。
+
+真实记录仅存 Vue 根组件的内存状态：
+- 切题/返回说明：保留当前草稿。
+- 完成：先生成记录快照，再销毁训练会话；记录的 Blob 继续保留。
+- 未完成就退出：丢弃草稿，不生成记录。
+- 刷新、关闭页面：丢失真实记录和首页完成标记；模拟历史重新加载。
+- 访问丢失或无效记录链接：提示记录可能已丢失，并可返回列表或首页。
+
+不使用 localStorage / IndexedDB，不宣称永久保存。后续持久化可以上传记录中的 Blob，使用文件 ID 替代内存文件引用。
+
+## 主要文件
+
+```text
+src/types/training.ts                 统一题目、会话、状态、答案和记录类型
+src/data/mock.ts                      训练配置
+src/data/mockRecords.ts               明确标记的模拟历史
+src/composables/useTrainingSession.ts 四种确认、作答校验与会话
+src/composables/useTrainingRecords.ts 内容快照及根组件内存记录
+src/composables/useAudioRecorder.ts   原有录音生命周期
+src/components/QuestionContent.vue    训练与记录共享图片/文字/指令展示
+src/components/TrainingQuestion.vue   统一四种交互
+src/components/AudioRecorder.vue      录音操作
+src/components/AudioPlayback.vue      训练与记录共享播放器
+src/components/StudentNav.vue         首页/我的共用导航
+src/views/TrainingRecordList.vue      记录列表
+src/views/TrainingRecordDetail.vue    通用逐题记录详情
+src/views/StudentProfile.vue          我的及记录入口
+src/views/TrainingComplete.vue        完成结果及本次记录入口
+src/App.vue                          hash 页面切换、内存记录所有者
+tests/                               会话、录音、记录与页面渲染测试
+```
+
+## 浏览器验收
+
+1. 心理训练：点击下一步但未确认时提示“我已阅读”；确认三个步骤后完成，在本次记录中只显示阅读状态，没有空白答案或录音控件。
+2. 软腭训练：第一步点击“我已阅读”；第二、三步点击“我已完成练习”；第四步录音、停止、试听后直接完成。记录应包含阅读、练习和第四步可播放的录音。
+3. 可选跳过：第四步明确跳过后完成，记录标注已跳过，不显示假录音或空白答案。
+4. 录音题：录音停止并生成音频后，无需确认即可继续；切回本题应保留录音。重录后直接替换本题音频；录音或处理期间仍暂停切题。
+5. 文字题配置测试：将测试步骤设为 interaction: 'text'，输入后需点击“提交文字答案”；修改已提交文字后必须重新提交。完成记录应显示最后提交的原文。心理训练不需要改成文字题。
+6. 完成页：“查看本次记录”应打开刚完成的记录，而不是其他训练或模拟记录；返回首页 → 我的 → 训练记录仍能打开并试听。
+7. 同一训练完成两次：列表出现两个独立真实记录，之前音频不被覆盖；首页该训练仍只计为一个已完成训练。
+8. 模拟历史：列表和详情都有模拟标识；综合示例按四种类型显示内容，音频明确标为提示音；查看记录不触发麦克风授权。
+9. 刷新：真实记录消失，只剩模拟历史；若在真实详情链接刷新，显示丢失提示及返回列表入口。
+10. 手机 320/375px 宽度检查：图片、按钮、音频播放器、时间、长文字不溢出；返回页面会停止播放，记录再次打开仍能试听。
+11. 麦克风拒绝、重录失败、等待授权时退出继续使用原有错误与资源清理逻辑，不生成未完成记录。
+
+## 已执行的检查
+
+类型检查和生产构建通过。19 项自动化测试覆盖原有录音行为、录音自动完成、其他步骤的显式确认、文字修改后重新提交、不生成空白答案、可选跳过、记录快照隔离、退出会话后音频保留、多次训练和重复事件、刷新状态、模拟 WAV 文件及实际 Vue 页面渲染。
+
+页面渲染测试验证阅读/练习不出现输入或录音控件，记录详情展示不同类型并包含试听播放器。它不等同于真实浏览器点击或麦克风测试；当前浏览器控制连接不可用，手机布局和实际录音播放仍需手动验收。
